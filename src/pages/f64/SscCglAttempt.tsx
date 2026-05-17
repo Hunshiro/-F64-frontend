@@ -62,6 +62,12 @@ type SubmitResponse = {
 const SECTIONS = ["Reasoning", "Quantitative Aptitude", "English Comprehension", "General Awareness"] as const;
 type SectionName = typeof SECTIONS[number];
 
+const createSectionRecord = <T,>(createValue: () => T): Record<SectionName, T> =>
+  SECTIONS.reduce((acc, section) => {
+    acc[section] = createValue();
+    return acc;
+  }, {} as Record<SectionName, T>);
+
 export default function SscCglAttempt() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -84,7 +90,9 @@ export default function SscCglAttempt() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Timer state
-  const [sectionTimes, setSectionTimes] = useState<Record<SectionName, number>>({});
+  const [sectionTimes, setSectionTimes] = useState<Record<SectionName, number>>(
+    () => createSectionRecord(() => 0)
+  );
   const [completedSections, setCompletedSections] = useState<SectionName[]>([]);
   const [visited, setVisited] = useState<Set<string>>(new Set());
 
@@ -92,7 +100,7 @@ export default function SscCglAttempt() {
 
   // Section questions
   const sectionQuestions = useMemo(() => {
-    const map: Record<SectionName, Question[]> = {};
+    const map = createSectionRecord<Question[]>(() => []);
     SECTIONS.forEach((section) => {
       map[section] = quiz?.questions?.filter((q) => q.subject === section) || [];
     });
@@ -113,7 +121,7 @@ export default function SscCglAttempt() {
         setQuiz(data);
 
         // Initialize section times
-        const times: Record<SectionName, number> = {};
+        const times = createSectionRecord(() => 0);
         SECTIONS.forEach((section) => {
           times[section] = (data.sectionTimeMinutes || data.durationMinutes / 4) * 60;
         });
@@ -662,10 +670,7 @@ export default function SscCglAttempt() {
   }
 
   if (stage === "results" && submitted) {
-    const sectionScores: Record<SectionName, { correct: number; total: number; marks: number }> = {};
-    SECTIONS.forEach((section) => {
-      sectionScores[section] = { correct: 0, total: 0, marks: 0 };
-    });
+    const sectionScores = createSectionRecord(() => ({ correct: 0, total: 0, marks: 0 }));
 
     submitted.review.forEach((review) => {
       const q = quiz.questions.find((q) => q._id === review.questionId);
