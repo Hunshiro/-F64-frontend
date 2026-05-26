@@ -19,6 +19,7 @@ import SscCglMocksList from "./pages/student/SscCglMocksList";
 import DescriptiveWriting from "./pages/student/DescriptiveWriting";
 import StudentComingSoon from "./pages/student/ComingSoon";
 import AnalyticsOverview from "./pages/analytics/Overview";
+import MockAnalytics from "./pages/analytics/MockAnalytics";
 import NotFound from "./pages/NotFound";
 import Landing from "./pages/Landing";
 import F64MockTest from "./pages/f64/MockTest";
@@ -72,6 +73,39 @@ export default function App() {
         element={
           <Protected>
             <SscCglAttempt />
+          </Protected>
+        }
+      />
+      {/* Standalone quiz pages - not in AppLayout */}
+      <Route
+        path="/student/quiz/:id"
+        element={
+          <Protected>
+            <QuizAttempt />
+          </Protected>
+        }
+      />
+      <Route
+        path="/student/serious-mock/:id"
+        element={
+          <Protected>
+            <SeriousMockTest />
+          </Protected>
+        }
+      />
+      <Route
+        path="/student/ssc-cgl-mocks"
+        element={
+          <Protected>
+            <SscCglMocksList />
+          </Protected>
+        }
+      />
+      <Route
+        path="/student/mock-analytics/:id"
+        element={
+          <Protected>
+            <MockAnalytics />
           </Protected>
         }
       />
@@ -147,10 +181,7 @@ export default function App() {
           <Route path="ai-assistant" element={<StudentComingSoon />} />
           <Route path="performance" element={<StudentComingSoon />} />
           <Route path="exam-coming-soon" element={<StudentComingSoon />} />
-          <Route path="ssc-cgl-mocks" element={<SscCglMocksList />} />
           <Route path="course/:id" element={<StudentCourse />} />
-          <Route path="quiz/:id" element={<QuizAttempt />} />
-          <Route path="serious-mock/:id" element={<SeriousMockTest />} />
           <Route path="descriptive/:id" element={<DescriptiveWriting />} />
         </Route>
         <Route path="analytics" element={<AnalyticsOverview />} />

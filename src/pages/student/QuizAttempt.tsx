@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { Card } from "../../components/Card";
 import { useToast } from "../../components/Toast";
 import { useAuth } from "../../lib/auth";
 import { apiRequest } from "../../lib/api";
-import { BookOpenCheck, Clock3, FileText, ShieldCheck } from "lucide-react";
+import { BookOpenCheck, Clock3, FileText, ShieldCheck, Maximize2, Minimize2, X, ArrowLeft } from "lucide-react";
 
 type Question = {
   _id: string;
@@ -12,6 +12,7 @@ type Question = {
   visualPdfUrl?: string;
   visualPageNumber?: number;
   visualNote?: string;
+  imageUrl?: string;
   text: string;
   options: string[];
   correctOptions: number[];
@@ -45,40 +46,75 @@ type SubmitResponse = {
   review: ReviewItem[];
 };
 
+const ORDERED_SECTIONS = [
+  "Reasoning",
+  "Quantitative Aptitude",
+  "English Comprehension",
+  "General Awareness"
+];
+
 export default function QuizAttempt() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { notify } = useToast();
   const { user } = useAuth();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number[]>>({});
+  
+  // Use a ref to always have access to the latest answers in timers/effects
+  const answersRef = useRef<Record<string, number[]>>({});
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+
   const [isStarted, setIsStarted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<SubmitResponse | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [showExplanationFor, setShowExplanationFor] = useState<string | null>(null);
+  const [fullscreenMode, setFullscreenMode] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [showExitModal, setShowExitModal] = useState(false);
+  const attemptedKey = "tb_attempted_quizzes";
+
   const [visited, setVisited] = useState<Set<string>>(new Set());
   const [reviewMode, setReviewMode] = useState(false);
-  const [showExplanationFor, setShowExplanationFor] = useState<string | null>(null);
-  const attemptedKey = "tb_attempted_quizzes";
 
   const totalQuestions = quiz?.questions?.length || 0;
   const activeQuestion = quiz?.questions?.[activeIndex];
   const totalMarks = quiz?.questions?.reduce((sum, question) => sum + (Number(question.marks) || 0), 0) || 0;
-  const orderedSections = [
-    "Reasoning",
-    "Quantitative Aptitude",
-    "English Comprehension",
-    "General Awareness"
-  ];
-  const sectionRows = orderedSections.map((section) => {
-    const questions = quiz?.questions?.filter((question) => question.subject === section) || [];
-    return {
-      section,
-      questions: questions.length,
-      marks: questions.reduce((sum, question) => sum + (Number(question.marks) || 0), 0)
-    };
-  });
+
+  const sectionRows = useMemo(() => {
+    return ORDERED_SECTIONS.map((section) => {
+      const questions = quiz?.questions?.filter((question) => question.subject === section) || [];
+      return {
+        section,
+        questions: questions.length,
+        marks: questions.reduce((sum, question) => sum + (Number(question.marks) || 0), 0)
+      };
+    });
+  }, [quiz]);
+
+  const reviewMap = useMemo(() => {
+    const map = new Map<string, ReviewItem>();
+    submitted?.review?.forEach((r) => map.set(r.questionId, r));
+    return map;
+  }, [submitted]);
+
+  // Check for existing attempt to redirect to analytics if in review mode
+  useEffect(() => {
+    if (!id || !user || isStarted || submitted) return;
+
+    // Check backend for submitted status
+    apiRequest<any[]>(`/api/attempts?quizId=${id}&status=submitted`)
+      .then(attempts => {
+        const myAttempt = attempts.find(a => (a.userId?._id || a.userId) === user.id);
+        if (myAttempt) {
+          navigate(`/student/mock-analytics/${myAttempt._id}?quizId=${id}`, { replace: true });
+        }
+      })
+      .catch(() => {});
+  }, [id, user, isStarted, submitted, navigate]);
 
   useEffect(() => {
     if (!id) return;
@@ -93,20 +129,59 @@ export default function QuizAttempt() {
       event.preventDefault();
       event.returnValue = "";
     };
-    const onFullscreenChange = () => {
-      if (!submitted && !document.fullscreenElement) {
-        document.documentElement.requestFullscreen().catch(() => {
-          notify("Fullscreen required until you submit the quiz.");
-        });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (fullscreenMode) {
+          setFullscreenMode(false);
+          document.exitFullscreen().catch(() => {});
+        }
       }
     };
     window.addEventListener("beforeunload", onBeforeUnload);
-    document.addEventListener("fullscreenchange", onFullscreenChange);
+    window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
-      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      window.removeEventListener("keydown", onKeyDown);
     };
-  }, [isStarted, submitted, notify]);
+  }, [isStarted, submitted, fullscreenMode]);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!fullscreenMode) {
+        await document.documentElement.requestFullscreen();
+        setFullscreenMode(true);
+      } else {
+        await document.exitFullscreen();
+        setFullscreenMode(false);
+      }
+    } catch (err) {
+      notify("Fullscreen not supported or denied");
+    }
+  };
+
+  const handleBack = () => {
+    if (isStarted && !submitted) {
+      setShowExitModal(true);
+    } else {
+      navigate("/student/ssc-cgl-mocks");
+    }
+  };
+
+  const handlePause = async () => {
+    if (!attemptId) return;
+    setIsPaused(true);
+    setShowExitModal(false);
+    try {
+      await apiRequest(`/api/attempts/${attemptId}/pause`, {
+        method: "PATCH",
+        body: JSON.stringify({ answers: Object.entries(answers).map(([questionId, selectedOptions]) => ({ questionId, selectedOptions })) })
+      });
+      notify("Quiz paused. You can resume later.");
+    } catch (err: any) {
+      notify(err.message || "Failed to pause quiz");
+    }
+  };
 
   useEffect(() => {
     if (!isStarted || !quiz || submitted) return;
@@ -195,18 +270,17 @@ export default function QuizAttempt() {
     if (!attemptId) return;
     setIsSubmitting(true);
     try {
+      const payload = Object.entries(answersRef.current).map(([questionId, selectedOptions]) => ({
+        questionId,
+        selectedOptions
+      }));
       const result = await apiRequest<SubmitResponse>(`/api/attempts/${attemptId}/submit`, {
-        method: "POST"
+        method: "POST",
+        body: JSON.stringify({ answers: payload })
       });
       setSubmitted(result);
       setIsStarted(false);
       setTimeLeft(null);
-      if (quiz?._id) {
-        const raw = localStorage.getItem(attemptedKey);
-        const existing = raw ? (JSON.parse(raw) as string[]) : [];
-        const next = [quiz._id, ...existing.filter((id) => id !== quiz._id)].slice(0, 20);
-        localStorage.setItem(attemptedKey, JSON.stringify(next));
-      }
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => undefined);
       }
@@ -218,29 +292,32 @@ export default function QuizAttempt() {
     }
   };
 
-  const reviewMap = useMemo(() => {
-    const map = new Map<string, ReviewItem>();
-    submitted?.review?.forEach((r) => map.set(r.questionId, r));
-    return map;
-  }, [submitted]);
-
   if (!quiz) {
     return <div className="space-y-4">Loading quiz...</div>;
   }
 
   if (!isStarted && !submitted) {
     return (
-      <div className="min-h-screen bg-[#f2f5f9] p-4 font-sans text-slate-900 md:p-6">
-        <div className="mx-auto w-full max-w-5xl overflow-hidden rounded-sm border border-gray-300 bg-white shadow-lg">
+      <div className={`min-h-screen bg-[#f2f5f9] p-4 font-sans text-slate-900 ${fullscreenMode ? "p-0" : "md:p-6"}`}>
+        <div className={`${fullscreenMode ? "w-full h-screen" : "mx-auto w-full max-w-5xl"} overflow-hidden rounded-sm ${fullscreenMode ? "rounded-none" : ""} border border-gray-300 bg-white shadow-lg`}>
           <div className="border-b-4 border-[#08376a] bg-[#0b4d92] px-6 py-4 text-white">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h1 className="text-2xl font-bold tracking-wide">Staff Selection Commission (SSC)</h1>
                 <p className="mt-1 text-sm opacity-90">Combined Graduate Level Examination (SSC CGL)</p>
               </div>
-              <div className="text-sm md:text-right">
-                <p>Candidate Login Panel</p>
-                <p className="font-semibold">Official Mock Instruction Interface</p>
+              <div className="flex items-center gap-3 text-sm">
+                <button
+                  onClick={() => setFullscreenMode(!fullscreenMode)}
+                  className="p-2 hover:bg-white/20 rounded transition"
+                  title={fullscreenMode ? "Exit fullscreen" : "Enter fullscreen"}
+                >
+                  {fullscreenMode ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+                </button>
+                <div className="text-right">
+                  <p>Candidate Login Panel</p>
+                  <p className="font-semibold">Official Mock Instruction Interface</p>
+                </div>
               </div>
             </div>
           </div>
@@ -361,11 +438,11 @@ export default function QuizAttempt() {
           <Card title="Your Performance">
             <div className="grid md:grid-cols-3 gap-4 text-sm">
               <div className="p-4 rounded-xl border bg-white/70">
-                <div className="text-xs text-ink/60">Score</div>
+                <div className="text-xs text-ink/60">Score (Backend Calculated)</div>
                 <div className="text-2xl font-semibold">{submitted.result.score.toFixed(2)}</div>
               </div>
               <div className="p-4 rounded-xl border bg-white/70">
-                <div className="text-xs text-ink/60">Accuracy</div>
+                <div className="text-xs text-ink/60">Accuracy (Backend Calculated)</div>
                 <div className="text-2xl font-semibold">{submitted.result.accuracy.toFixed(1)}%</div>
               </div>
               <div className="p-4 rounded-xl border bg-white/70">
@@ -378,6 +455,14 @@ export default function QuizAttempt() {
           <Card title="Next Steps">
             <div className="text-sm text-ink/70">
               Review each question to understand mistakes and strengthen weak areas.
+            </div>
+            <div className="mt-6">
+              <button 
+                className="px-6 py-2 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all"
+                onClick={() => navigate(`/student/mock-analytics/${submitted.attempt._id}?quizId=${id}`)}
+              >
+                View Comprehensive Analytics
+              </button>
             </div>
           </Card>
         </div>
@@ -525,79 +610,137 @@ export default function QuizAttempt() {
   })();
 
   return (
-    <div className="min-h-screen bg-[#F6F8FC] text-ink">
-      <div className="sticky top-0 z-10 border-b border-black/10 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+    <div className={`min-h-screen text-ink ${fullscreenMode ? "bg-black" : "bg-[#F6F8FC]"}`}>
+      <div className={`sticky top-0 z-10 border-b ${fullscreenMode ? "border-gray-600 bg-gray-900" : "border-black/10 bg-white"}`}>
+        <div className={`flex flex-wrap items-center justify-between gap-3 ${fullscreenMode ? "px-4 py-3" : "px-6 py-4"}`}>
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-blue-600 text-white flex items-center justify-center">Q</div>
+            <button
+              onClick={handleBack}
+              className={`p-2 rounded transition ${fullscreenMode ? "hover:bg-gray-700 text-white" : "hover:bg-gray-100"}`}
+              title="Back"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className={`h-9 w-9 rounded-xl bg-blue-600 text-white flex items-center justify-center ${fullscreenMode ? "text-sm" : ""}`}>Q</div>
             <div>
-              <div className="font-display text-lg">{quiz.title}</div>
-              <div className="text-xs text-ink/60">Advanced Mathematics • Unit Practice</div>
+              <div className={`font-display ${fullscreenMode ? "text-base" : "text-lg"} ${fullscreenMode ? "text-white" : ""}`}>{quiz.title}</div>
+              <div className={`text-xs ${fullscreenMode ? "text-gray-400" : "text-ink/60"}`}>Advanced Mathematics • Unit Practice</div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs">
-              AI Assistant Ready
-            </span>
-            <button className="px-3 py-2 rounded-lg border">Save & Exit</button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleFullscreen}
+              className={`px-3 py-2 rounded-lg transition ${fullscreenMode ? "hover:bg-gray-700 text-white" : "border hover:bg-gray-50"}`}
+              title={fullscreenMode ? "Exit fullscreen (Esc)" : "Enter fullscreen"}
+            >
+              {fullscreenMode ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+            </button>
+            {fullscreenMode && (
+              <button
+                onClick={() => {
+                  setFullscreenMode(false);
+                  document.exitFullscreen().catch(() => {});
+                }}
+                className="px-3 py-2 rounded-lg hover:bg-gray-700 text-white transition"
+                title="Exit fullscreen mode"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            )}
+            {!fullscreenMode && (
+              <>
+                <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs">
+                  AI Assistant Ready
+                </span>
+                <button className="px-3 py-2 rounded-lg border">Save & Exit</button>
+              </>
+            )}
             <div className="h-9 w-9 rounded-full bg-black/5" />
           </div>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-6 px-6 py-6">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between text-sm text-ink/60">
-            <div>Question {activeIndex + 1} of {totalQuestions}</div>
-            <div>{progressPct}% Completed</div>
-          </div>
-          <div className="h-2 rounded-full bg-black/5">
-            <div className="h-2 rounded-full bg-blue-600" style={{ width: `${progressPct}%` }} />
-          </div>
+      <div className={`grid ${fullscreenMode ? "grid-cols-1 lg:grid-cols-[1fr_300px] h-[calc(100vh-70px)] overflow-hidden" : "lg:grid-cols-[1fr_320px] gap-6"} ${!fullscreenMode ? "px-6 py-6" : "gap-4 px-4 py-4"}`}>
+        <div className={`space-y-4 ${fullscreenMode ? "overflow-y-auto" : ""}`}>
+          {!fullscreenMode && (
+            <>
+              <div className="flex items-center justify-between text-sm text-ink/60">
+                <div>Question {activeIndex + 1} of {totalQuestions}</div>
+                <div>{progressPct}% Completed</div>
+              </div>
+              <div className="h-2 rounded-full bg-black/5">
+                <div className="h-2 rounded-full bg-blue-600" style={{ width: `${progressPct}%` }} />
+              </div>
+            </>
+          )}
+          {fullscreenMode && (
+            <div className="text-xs text-white/60 mb-2">Question {activeIndex + 1} of {totalQuestions}</div>
+          )}
 
           {activeQuestion && (
-            <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <div className={`${fullscreenMode ? "border-0 bg-gray-800 p-4 rounded-lg text-white" : "rounded-2xl border bg-white p-6 shadow-sm"}`}>
               {activeQuestion.subject && (
-                <div className="mb-3 text-xs uppercase tracking-widest text-ink/50">{activeQuestion.subject}</div>
+                <div className={`mb-3 text-xs uppercase tracking-widest ${fullscreenMode ? "text-gray-400" : "text-ink/50"}`}>{activeQuestion.subject}</div>
               )}
               {activeQuestion.visualPdfUrl && activeQuestion.visualPageNumber && (
-                <div className="mb-5 overflow-hidden rounded-2xl border bg-slate-50">
-                  <div className="border-b bg-white px-4 py-3 text-sm font-medium">
+                <div className={`mb-5 overflow-hidden rounded-lg ${fullscreenMode ? "border-gray-600" : "border bg-slate-50"}`}>
+                  <div className={`border-b px-4 py-3 text-sm font-medium ${fullscreenMode ? "bg-gray-700 border-gray-600 text-white" : "bg-white border-b"}`}>
                     Visual reference from source PDF, page {activeQuestion.visualPageNumber}
                   </div>
                   <iframe
                     title={`Visual reference page ${activeQuestion.visualPageNumber}`}
-                    className="h-[420px] w-full"
+                    className={`w-full ${fullscreenMode ? "h-[300px]" : "h-[420px]"}`}
                     src={`${activeQuestion.visualPdfUrl}#page=${activeQuestion.visualPageNumber}`}
                   />
                   {activeQuestion.visualNote && (
-                    <div className="border-t bg-white px-4 py-3 text-xs text-ink/60">{activeQuestion.visualNote}</div>
+                    <div className={`border-t px-4 py-3 text-xs ${fullscreenMode ? "bg-gray-700 border-gray-600 text-gray-200" : "bg-white text-ink/60"}`}>{activeQuestion.visualNote}</div>
                   )}
                 </div>
               )}
-              <div className="text-lg font-semibold">{activeQuestion.text}</div>
+              {activeQuestion.imageUrl && (
+                <div className={`mb-5 overflow-hidden rounded-lg border ${fullscreenMode ? "border-gray-600 bg-gray-900" : "bg-white"} flex justify-center max-w-md mx-auto`}>
+                  <img
+                    src={activeQuestion.imageUrl}
+                    alt="Question context"
+                    className="max-h-[250px] w-full object-contain"
+                  />
+                </div>
+              )}
+              <div className={`font-semibold ${fullscreenMode ? "text-lg" : "text-lg"}`}>{activeQuestion.text}</div>
               <div className="mt-5 space-y-3">
                 {activeQuestion.options.map((opt, idx) => {
                   const selected = (answers[activeQuestion._id] || []).includes(idx);
                   return (
                     <button
                       key={idx}
-                      className={`w-full flex items-center justify-between gap-3 p-4 rounded-xl border text-left ${
-                        selected ? "border-blue-600 bg-blue-50" : "hover:border-blue-300"
+                      className={`w-full flex items-center justify-between gap-3 p-4 rounded-lg border text-left ${
+                        fullscreenMode
+                          ? selected
+                            ? "border-blue-400 bg-blue-900 text-white"
+                            : "border-gray-600 bg-gray-700 hover:border-gray-500 text-white"
+                          : selected
+                            ? "border-blue-600 bg-blue-50"
+                            : "hover:border-blue-300"
                       }`}
                       onClick={() => toggleOption(activeQuestion, idx)}
                     >
                       <div className="flex items-center gap-3">
                         <span
                           className={`h-5 w-5 rounded-full border flex items-center justify-center ${
-                            selected ? "border-blue-600 text-blue-600" : "border-black/20"
+                            selected
+                              ? fullscreenMode
+                                ? "border-blue-400 text-blue-400"
+                                : "border-blue-600 text-blue-600"
+                              : fullscreenMode
+                                ? "border-gray-500"
+                                : "border-black/20"
                           }`}
                         >
                           {selected ? "●" : ""}
                         </span>
                         <span>{String.fromCharCode(65 + idx)}. {opt}</span>
                       </div>
-                      {selected && <span className="text-xs text-blue-600 font-semibold">Selected</span>}
+                      {selected && <span className={`text-xs font-semibold ${fullscreenMode ? "text-blue-400" : "text-blue-600"}`}>Selected</span>}
                     </button>
                   );
                 })}
@@ -633,14 +776,14 @@ export default function QuizAttempt() {
           <div className="rounded-2xl border bg-white p-4">
             <div className="text-sm font-semibold mb-3">Sections</div>
             <div className="flex flex-wrap gap-2">
-              {orderedSections.map((section) => {
+              {ORDERED_SECTIONS.map((section) => {
                 const count = sectionRows.find((r) => r.section === section)?.questions || 0;
                 return (
                   <button
                     key={section}
                     className={`px-3 py-2 rounded-xl border text-sm font-semibold ${
                       (activeQuestion?.subject || "") === section
-                        ? "bg-blue-600 text-white border-blue-600"
+                        ? "bg-blue-600 text-white border-blue-600" 
                         : "bg-white hover:bg-blue-50 border-black/10"
                     }`}
                     onClick={() => {
@@ -719,6 +862,39 @@ export default function QuizAttempt() {
           </button>
         </aside>
       </div>
+
+      {/* Exit Modal */}
+      {showExitModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-sm shadow-lg">
+            <h2 className="text-xl font-semibold mb-4">Exit Quiz?</h2>
+            <p className="text-ink/70 mb-6">Choose what you'd like to do:</p>
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setShowExitModal(false);
+                  void handleSubmit();
+                }}
+                className="w-full px-4 py-3 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition"
+              >
+                Submit Quiz Now
+              </button>
+              <button
+                onClick={handlePause}
+                className="w-full px-4 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition"
+              >
+                Pause & Resume Later
+              </button>
+              <button
+                onClick={() => setShowExitModal(false)}
+                className="w-full px-4 py-3 rounded-lg border font-semibold hover:bg-gray-50 transition"
+              >
+                Continue Quiz
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

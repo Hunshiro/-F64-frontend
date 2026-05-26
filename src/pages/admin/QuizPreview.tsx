@@ -13,6 +13,7 @@ type Question = {
   visualPageNumber?: number;
   visualNote?: string;
   text: string;
+  imageUrl?: string;
   options: string[];
   correctOptions: number[];
   explanation?: string;
@@ -107,6 +108,15 @@ export default function AdminQuizPreview() {
                 Q{idx + 1}. {q.text}
               </div>
               {q.subject && <div className="mb-2 text-xs uppercase tracking-wide text-ink/50">{q.subject}</div>}
+              {q.imageUrl && (
+                <div className="mb-3 rounded-lg border border-border overflow-hidden bg-white max-w-md">
+                  <img
+                    src={q.imageUrl}
+                    alt={`Q${idx + 1} Visual`}
+                    className="w-full h-auto max-h-64 object-contain"
+                  />
+                </div>
+              )}
               {q.visualPdfUrl && q.visualPageNumber && (
                 <div className="mb-3 overflow-hidden rounded-lg border bg-slate-50">
                   <div className="border-b bg-white px-3 py-2 text-xs font-medium">

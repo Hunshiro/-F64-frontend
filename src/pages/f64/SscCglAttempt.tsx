@@ -16,6 +16,7 @@ import {
   AlertCircle,
   CheckCircle2,
   XCircle,
+  Gauge,
 } from "lucide-react";
 
 type Question = {
@@ -80,7 +81,12 @@ export default function SscCglAttempt() {
 
   // UI State
   const [stage, setStage] = useState<"instruction" | "quiz" | "results">("instruction");
-  const [language, setLanguage] = useState<"en" | "hi">("en");
+  const [language, setLanguage] = useState<"en" | "hi">(() => {
+    const saved = localStorage.getItem("mockLanguagePreference");
+    if (saved === "hi") return "hi";
+    const browserLang = navigator.language.startsWith("hi") ? "hi" : "en";
+    return browserLang;
+  });
 
   // Quiz state
   const [currentSectionIdx, setCurrentSectionIdx] = useState(0);
@@ -132,6 +138,11 @@ export default function SscCglAttempt() {
     };
     loadQuiz();
   }, [id, notify]);
+
+  // Save language preference when it changes
+  useEffect(() => {
+    localStorage.setItem("mockLanguagePreference", language);
+  }, [language]);
 
   // Auth check
   useEffect(() => {
@@ -259,13 +270,6 @@ export default function SscCglAttempt() {
       setCompletedSections((prev) =>
         prev.includes(currentSection) ? prev : [...prev, currentSection]
       );
-
-      if (quiz?._id) {
-        const raw = localStorage.getItem(attemptedKey);
-        const existing = raw ? (JSON.parse(raw) as string[]) : [];
-        const next = [quiz._id, ...existing.filter((qid) => qid !== quiz._id)].slice(0, 20);
-        localStorage.setItem(attemptedKey, JSON.stringify(next));
-      }
 
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => undefined);
@@ -804,6 +808,20 @@ export default function SscCglAttempt() {
 
           {/* Actions */}
           <div className="flex gap-4 mt-6 justify-center flex-wrap">
+            <button
+              onClick={() => {
+                const idToUse = submitted?.attempt?._id;
+                if (idToUse) {
+                  navigate(`/student/mock-analytics/${idToUse}?quizId=${quiz?._id}`);
+                } else {
+                  navigate("/ssc-cgl/mocks");
+                }
+              }}
+              className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-colors flex items-center gap-2"
+            >
+              <FileText size={18} />
+              Review Analytics
+            </button>
             <button
               onClick={handleReset}
               className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors flex items-center gap-2"

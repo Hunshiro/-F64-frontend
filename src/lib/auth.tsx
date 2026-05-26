@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "./api";
 
-type User = { id: string; name: string; email: string; role: "admin" | "student" };
+type User = { id: string; name: string; email: string; role: "admin" | "student"; gender?: string };
 
 type AuthContextValue = {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
-  signup: (name: string, email: string, password: string, role?: "admin" | "student") => Promise<void>;
+  signup: (name: string, email: string, password: string, role: "admin" | "student", gender: string) => Promise<void>;
   logout: () => void;
 };
 
@@ -30,10 +30,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(data.user);
   };
 
-  const signup = async (name: string, email: string, password: string, role?: "admin" | "student") => {
+  const signup = async (name: string, email: string, password: string, role: "admin" | "student", gender: string) => {
     const data = await apiRequest<{ token: string; user: User }>("/api/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ name, email, password, role })
+      body: JSON.stringify({ name, email, password, role, gender })
     });
     localStorage.setItem("tb_token", data.token);
     localStorage.setItem("tb_user", JSON.stringify(data.user));

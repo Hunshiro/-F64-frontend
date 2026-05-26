@@ -26,6 +26,7 @@ export default function AdminDashboard() {
           studentName: string;
           studentEmail: string;
           quizTitle: string;
+          gender?: string;
           durationMinutes: number;
           score: number;
           accuracy: number;
@@ -191,6 +192,7 @@ export default function AdminDashboard() {
             <thead className="text-ink/60">
               <tr className="text-left">
                 <th className="py-2">Student</th>
+                <th className="py-2">Gender</th>
                 <th className="py-2">Quiz</th>
                 <th className="py-2">Marks</th>
                 <th className="py-2">Accuracy</th>
@@ -204,6 +206,11 @@ export default function AdminDashboard() {
                   <td className="py-3">
                     <div className="font-medium">{attempt.studentName}</div>
                     <div className="text-xs text-ink/60">{attempt.studentEmail || "No email"}</div>
+                  </td>
+                  <td className="py-3">
+                    <span className="text-xs font-bold uppercase bg-slate-100 px-2 py-1 rounded text-slate-600">
+                      {attempt.gender || "N/A"}
+                    </span>
                   </td>
                   <td className="py-3">{attempt.quizTitle}</td>
                   <td className="py-3 font-medium">{attempt.score.toFixed(2)}</td>

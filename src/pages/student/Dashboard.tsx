@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+﻿﻿import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Card } from "../../components/Card";
 import { useToast } from "../../components/Toast";
@@ -56,6 +56,7 @@ export default function StudentDashboard() {
   const [savedQuizIds, setSavedQuizIds] = useState<string[]>([]);
   const [savedQuizzes, setSavedQuizzes] = useState<QuizSummary[]>([]);
 
+  const [attemptMap, setAttemptMap] = useState<Record<string, string>>({});
   const [attemptedQuizIds, setAttemptedQuizIds] = useState<string[]>([]);
   const [attemptedQuizzes, setAttemptedQuizzes] = useState<QuizSummary[]>([]);
 
@@ -89,29 +90,41 @@ export default function StudentDashboard() {
   }, []);
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!user?.id) return;
+    const key = `${STORAGE_KEY}_${user.id}`;
+    const raw = localStorage.getItem(key);
     if (!raw) return;
     try {
-      const ids = JSON.parse(raw) as string[];
-      if (Array.isArray(ids) && ids.length) setSavedQuizIds(ids);
+      const map = JSON.parse(raw) as Record<string, string>; // Expecting a map now
+      if (map && typeof map === 'object') setSavedQuizIds(Object.keys(map)); // Get quiz IDs from keys
     } catch {
       // ignore
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
-    const raw = localStorage.getItem(ATTEMPTED_KEY);
-    if (!raw) return;
-    try {
-      const ids = JSON.parse(raw) as string[];
-      if (Array.isArray(ids) && ids.length) setAttemptedQuizIds(ids);
-    } catch {
-      // ignore
-    }
-  }, []);
+    if (!user?.id) return;
+    
+    // Fetch attempt history directly from MongoDB
+    apiRequest<any[]>(`/api/attempts?status=submitted`)
+      .then(attempts => {
+        if (!Array.isArray(attempts)) return;
+        const map: Record<string, string> = {};
+        attempts.forEach(attempt => {
+          const qId = attempt.quizId?._id || attempt.quizId;
+          const aId = attempt._id;
+          if (qId) map[String(qId)] = String(aId);
+        });
+        setAttemptMap(map);
+        setAttemptedQuizIds(Object.keys(map));
+      })
+      .catch(() => {});
+  }, [user?.id]);
 
   useEffect(() => {
-    const raw = localStorage.getItem(DESCRIPTIVE_ATTEMPT_KEY);
+    if (!user?.id) return;
+    const key = `${DESCRIPTIVE_ATTEMPT_KEY}_${user.id}`;
+    const raw = localStorage.getItem(key);
     if (!raw) return;
     try {
       const data = JSON.parse(raw) as Record<string, { totalScore?: number }>;
@@ -127,7 +140,7 @@ export default function StudentDashboard() {
     } catch {
       // ignore
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!savedQuizIds.length) return;
@@ -201,8 +214,12 @@ export default function StudentDashboard() {
       );
 
       setSavedQuizIds((prev) => {
-        const next = [result.quizId, ...prev.filter((id) => id !== result.quizId)];
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next.slice(0, 10)));
+        if (!user?.id) return prev;
+        const key = `${STORAGE_KEY}_${user.id}`;
+        const existingMap = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, string>;
+        existingMap[result.quizId] = result.quizId; // Store quizId -> quizId for saved
+        const next = Object.keys(existingMap);
+        localStorage.setItem(key, JSON.stringify(existingMap));
         return next.slice(0, 10);
       });
 
@@ -536,9 +553,14 @@ export default function StudentDashboard() {
                       {q.durationMinutes} min • {q.difficulty}
                     </div>
                   </div>
-                  <Link className="px-3 py-2 rounded-lg bg-accent text-white text-sm" to={`/student/quiz/${q._id}`}>
-                    Attempt
-                  </Link>
+                  <div className="flex gap-2">
+                    <Link 
+                      className={`px-3 py-2 rounded-lg text-sm transition-all ${attemptMap[q._id] ? 'border border-slate-200 text-slate-600 hover:bg-slate-50' : 'bg-accent text-white hover:opacity-90'}`} 
+                      to={attemptMap[q._id] ? `/student/mock-analytics/${attemptMap[q._id]}?quizId=${q._id}` : `/student/quiz/${q._id}`}
+                    >
+                      {attemptMap[q._id] ? 'Review' : 'Attempt'}
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>
@@ -562,7 +584,10 @@ export default function StudentDashboard() {
                       {q.durationMinutes} min • {q.difficulty}
                     </div>
                   </div>
-                  <Link className="px-3 py-2 rounded-lg border text-sm" to={`/student/quiz/${q._id}`}>
+                  <Link 
+                    className="px-3 py-2 rounded-lg border text-sm" 
+                    to={attemptMap[q._id] ? `/student/mock-analytics/${attemptMap[q._id]}?quizId=${q._id}` : `/student/quiz/${q._id}`}
+                  >
                     Review
                   </Link>
                 </div>
@@ -588,4 +613,3 @@ export default function StudentDashboard() {
     </div>
   );
 }
-

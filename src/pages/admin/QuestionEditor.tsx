@@ -5,7 +5,10 @@ import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { Skeleton } from "../../components/Skeleton";
 import { useToast } from "../../components/Toast";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, apiUpload } from "../../lib/api";
+
+
+
 import { ArrowLeft, Save, ChevronLeft, ChevronRight } from "lucide-react";
 
 type Question = {
@@ -21,7 +24,9 @@ type Question = {
   visualPdfUrl?: string;
   visualPageNumber?: number;
   visualNote?: string;
+  imageUrl?: string;
 };
+
 
 type Quiz = {
   _id: string;
@@ -55,6 +60,7 @@ export default function QuestionEditor() {
   }, [currentIndex, currentQuestion]);
 
   const updateQuestion = useMutation({
+
     mutationFn: (payload: any) =>
       apiRequest(`/api/questions/${editedQuestion?._id}`, { method: "PATCH", body: JSON.stringify(payload) }),
     onSuccess: () => {
@@ -71,14 +77,13 @@ export default function QuestionEditor() {
       options: editedQuestion.options,
       correctOptions: editedQuestion.correctOptions,
       explanation: editedQuestion.explanation,
-      visualPdfUrl: editedQuestion.visualPdfUrl,
-      visualPageNumber: editedQuestion.visualPageNumber,
-      visualNote: editedQuestion.visualNote,
       type: editedQuestion.type,
       marks: editedQuestion.marks,
-      negativeMarks: editedQuestion.negativeMarks
+      negativeMarks: editedQuestion.negativeMarks,
+      imageUrl: editedQuestion.imageUrl
     });
   };
+
 
   const handleOptionChange = (idx: number, value: string) => {
     if (!editedQuestion) return;
@@ -140,6 +145,71 @@ export default function QuestionEditor() {
                 onChange={(e) => setEditedQuestion({ ...editedQuestion, text: e.target.value })}
                 className="w-full h-32 p-3 bg-muted border border-border rounded-lg text-sm font-mono"
               />
+
+              {/* Image container just below question text */}
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-sm font-semibold">Question Image</label>
+                <div>
+                  <input
+                    id="question-image-upload"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const fd = new FormData();
+                        fd.append("file", file);
+                        const uploaded = await apiUpload<{ url: string }>("/api/uploads/image", fd);
+                        setEditedQuestion((prev) => (prev ? { ...prev, imageUrl: uploaded.url } : prev));
+                      } catch (err: any) {
+                        notify(err.message || "Image upload failed");
+                      } finally {
+                        (e.target as HTMLInputElement).value = "";
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+
+                {editedQuestion.imageUrl ? (
+                  <div className="mt-2 rounded-xl border border-border overflow-hidden bg-white">
+                    <img
+                      src={editedQuestion.imageUrl}
+                      alt="Question visual"
+                      className="w-full max-h-64 object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-2 rounded-xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                    No image uploaded.
+                  </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const input = document.getElementById("question-image-upload") as HTMLInputElement | null;
+                      input?.click();
+                    }}
+                    className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold"
+                  >
+                    Upload Image
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditedQuestion({ ...editedQuestion, imageUrl: "" })}
+                    disabled={!editedQuestion.imageUrl}
+                    className="px-4 py-2 rounded-lg bg-muted border border-border hover:bg-muted/80 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
             </Card>
 
             {/* Question Metadata */}
@@ -215,45 +285,6 @@ export default function QuestionEditor() {
                 onChange={(e) => setEditedQuestion({ ...editedQuestion, explanation: e.target.value })}
                 className="w-full h-24 p-3 bg-muted border border-border rounded-lg text-sm font-mono"
               />
-            </Card>
-
-            {/* Visual Fields */}
-            <Card className="p-6">
-              <label className="block text-sm font-semibold mb-4">Visual Question (Optional)</label>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Visual PDF URL</label>
-                  <input
-                    type="url"
-                    value={editedQuestion.visualPdfUrl || ""}
-                    onChange={(e) => setEditedQuestion({ ...editedQuestion, visualPdfUrl: e.target.value })}
-                    className="w-full p-2 bg-muted border border-border rounded-lg text-sm"
-                    placeholder="https://..."
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Page Number</label>
-                    <input
-                      type="number"
-                      value={editedQuestion.visualPageNumber || ""}
-                      onChange={(e) => setEditedQuestion({ ...editedQuestion, visualPageNumber: e.target.value ? Number(e.target.value) : undefined })}
-                      className="w-full p-2 bg-muted border border-border rounded-lg text-sm"
-                      placeholder="1"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Visual Note</label>
-                    <input
-                      type="text"
-                      value={editedQuestion.visualNote || ""}
-                      onChange={(e) => setEditedQuestion({ ...editedQuestion, visualNote: e.target.value })}
-                      className="w-full p-2 bg-muted border border-border rounded-lg text-sm"
-                      placeholder="e.g., Diagram on left side"
-                    />
-                  </div>
-                </div>
-              </div>
             </Card>
 
             {/* Actions */}

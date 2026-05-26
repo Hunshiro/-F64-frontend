@@ -54,17 +54,20 @@ export default function SscCglMocks() {
       const publishedQuizzes = (response.items || []).filter(q => q.status === "published");
       setQuizzes(publishedQuizzes);
 
-      // Load attempt status from localStorage and backend
-      const attemptedQuizzes = localStorage.getItem(attemptedKey);
-      const attemptedIds = attemptedQuizzes ? JSON.parse(attemptedQuizzes) : [];
-      
+      // Load attempt status from backend for reliability
+      const attempts = await apiRequest<any[]>(`/api/attempts?status=submitted`);
       const statuses: Record<string, AttemptStatus> = {};
-      for (const quiz of publishedQuizzes) {
+      
+      publishedQuizzes.forEach(quiz => {
+        const userAttempt = attempts.find(a => (a.quizId?._id || a.quizId) === quiz._id);
         statuses[quiz._id] = {
           quizId: quiz._id,
-          isAttempted: attemptedIds.includes(quiz._id)
+          isAttempted: !!userAttempt,
+          score: userAttempt?.result?.score,
+          // Store the attemptId temporarily in accuracy field for the Link
+          accuracy: userAttempt?._id
         };
-      }
+      });
       setAttemptStatuses(statuses);
     } catch (err: any) {
       notify(err.message || "Failed to load mocks");
@@ -188,13 +191,13 @@ export default function SscCglMocks() {
                       </div>
 
                       {/* Action Button */}
-                      <button
-                        onClick={() => navigate(`/ssc-cgl/attempt/${quiz._id}`)}
-                        className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors whitespace-nowrap"
+                      <Link
+                        to={status?.isAttempted ? `/student/mock-analytics/${status.accuracy}?quizId=${quiz._id}` : `/ssc-cgl/attempt/${quiz._id}`}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-colors whitespace-nowrap ${status?.isAttempted ? 'bg-slate-800 text-white hover:bg-black' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
                       >
-                        <Play size={18} />
-                        {status?.isAttempted ? "Retake" : "Start"}
-                      </button>
+                        {status?.isAttempted ? <BarChart3 size={18} /> : <Play size={18} />}
+                        {status?.isAttempted ? "Review" : "Start"}
+                      </Link>
                     </div>
                   </Card>
                 );
