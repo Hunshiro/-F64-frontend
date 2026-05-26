@@ -751,7 +751,7 @@ export default function SeriousMockTest() {
               )}
               <button
                 onClick={clearResponse} // Clear response should still work
-                disabled={submitted} // Disable if submitted
+disabled={submitted !== null} // Disable if submitted
                 className="px-6 py-2 border-2 border-slate-300 text-slate-600 bg-white text-sm font-bold rounded shadow-sm hover:bg-slate-100"
               >
                 Clear Response

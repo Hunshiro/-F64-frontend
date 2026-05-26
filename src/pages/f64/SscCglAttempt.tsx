@@ -271,6 +271,7 @@ export default function SscCglAttempt() {
         prev.includes(currentSection) ? prev : [...prev, currentSection]
       );
 
+
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => undefined);
       }

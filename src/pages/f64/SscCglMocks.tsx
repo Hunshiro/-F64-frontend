@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiRequest } from "../../lib/api";
 import { useToast } from "../../components/Toast";
 import { useAuth } from "../../lib/auth";
-import { ArrowLeft, Play, Clock, BookOpen, CheckCircle2, Lock } from "lucide-react";
+import { ArrowLeft, Play, Clock, BookOpen, CheckCircle2, Lock, BarChart3 } from "lucide-react";
 import { Card } from "../../components/Card";
 
 type QuizSummary = {
